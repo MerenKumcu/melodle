@@ -195,7 +195,7 @@ export default function MelodlePage() {
     <main className="min-h-screen bg-slate-950 text-slate-100 flex flex-col items-center p-6 select-none font-sans">
       <header className="border-b border-slate-800 w-full max-w-md pb-4 mb-6 text-center">
         <h1 className="text-3xl font-extrabold tracking-wider text-emerald-400">MELODLE</h1>
-        <p className="text-xs text-slate-400 mt-1">Türkçe Rock Tahmin Oyunu</p>
+        <p className="text-xs text-slate-400 mt-1">Türkçe Şarkı Tahmin Oyunu</p>
       </header>
 
       {targetSong && (
