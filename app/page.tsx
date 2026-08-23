@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
-import songsData from '../data/songs.json';
+import rawSongsData from '../data/songs.json';
 
 interface Song {
   id: number;
@@ -13,12 +13,13 @@ interface Song {
 
 interface LocalSong {
   id: number;
+  genre?: string;
   query: string;
   artist: string;
   title: string;
 }
 
-const STAGES = [0.5, 1, 3, 5, 10, 16];
+const STAGES = [1, 2, 4, 7, 11, 16];
 
 const normalizeText = (text: string) => {
   return text
@@ -33,7 +34,10 @@ const normalizeText = (text: string) => {
 };
 
 export default function MelodlePage() {
-  const [currentSongIndex, setCurrentSongIndex] = useState<number>(0);
+  const songsData = rawSongsData as LocalSong[];
+
+  const [selectedGenre, setSelectedGenre] = useState<'all' | 'rock' | 'rap'>('all');
+  const [playedIds, setPlayedIds] = useState<number[]>([]);
   const [targetSong, setTargetSong] = useState<Song | null>(null);
   const [currentSongLocal, setCurrentSongLocal] = useState<LocalSong | null>(null);
   
@@ -43,15 +47,36 @@ export default function MelodlePage() {
   const [gameStatus, setGameStatus] = useState<'PLAYING' | 'WON' | 'LOST'>('PLAYING');
   const [isLoading, setIsLoading] = useState<boolean>(false);
 
-  // Arama state'leri
+  // Arama ve Klavye state'leri
   const [searchQuery, setSearchQuery] = useState('');
   const [filteredSongs, setFilteredSongs] = useState<LocalSong[]>([]);
+  const [selectedIndex, setSelectedIndex] = useState<number>(-1);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Şarkı yükleme fonksiyonu
-  const loadSong = async (index: number) => {
+  // Kategoriye göre filtrelenmiş şarkı havuzu
+  const getPool = (genre: 'all' | 'rock' | 'rap') => {
+    if (genre === 'all') return songsData;
+    return songsData.filter((s) => s.genre === genre);
+  };
+
+  // Tekrarsız Rastgele Şarkı Seçici
+  const getRandomSong = (genre: 'all' | 'rock' | 'rap', currentPlayed: number[]) => {
+    const pool = getPool(genre);
+    let available = pool.filter((s) => !currentPlayed.includes(s.id));
+
+    if (available.length === 0) {
+      available = pool;
+      currentPlayed = [];
+    }
+
+    const randomSong = available[Math.floor(Math.random() * available.length)];
+    return { song: randomSong, updatedPlayed: [...currentPlayed, randomSong.id] };
+  };
+
+  // Şarkıyı yükleme fonksiyonu
+  const loadNewSong = async (genre: 'all' | 'rock' | 'rap') => {
     setIsLoading(true);
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
     if (audioRef.current) {
@@ -60,21 +85,19 @@ export default function MelodlePage() {
     }
     setIsPlaying(false);
 
-    const safeIndex = index % songsData.length;
-    setCurrentSongIndex(safeIndex);
+    const { song, updatedPlayed } = getRandomSong(genre, playedIds);
+    setPlayedIds(updatedPlayed);
+    setCurrentSongLocal(song);
 
-    const songInfo = songsData[safeIndex];
-    setCurrentSongLocal(songInfo);
-
-    // Durumu sıfırla
     setGuesses([]);
     setStageIndex(0);
     setGameStatus('PLAYING');
     setSearchQuery('');
     setFilteredSongs([]);
+    setSelectedIndex(-1);
 
     try {
-      const res = await fetch(`/api/deezer?q=${encodeURIComponent(songInfo.query)}`);
+      const res = await fetch(`/api/deezer?q=${encodeURIComponent(song.query)}`);
       const data = await res.json();
       if (data.data && data.data.length > 0) {
         setTargetSong(data.data[0]);
@@ -87,30 +110,27 @@ export default function MelodlePage() {
   };
 
   useEffect(() => {
-    // Site her açıldığında / yenilendiğinde 50 şarkıdan rastgele birini seç
-    const randomIndex = Math.floor(Math.random() * songsData.length);
-    loadSong(randomIndex);
-  }, []);
+    loadNewSong(selectedGenre);
+  }, [selectedGenre]);
 
-  const handleNextSong = () => {
-    const randomIndex = Math.floor(Math.random() * songsData.length);
-    loadSong(randomIndex !== currentSongIndex ? randomIndex : (randomIndex + 1) % songsData.length);
-  };
-
+  // Arama filtreleme
   useEffect(() => {
     const query = normalizeText(searchQuery);
     if (query.length < 2) {
       setFilteredSongs([]);
+      setSelectedIndex(-1);
       return;
     }
 
-    const results = songsData.filter((song) => {
+    const pool = getPool(selectedGenre);
+    const results = pool.filter((song) => {
       const fullText = normalizeText(`${song.artist} ${song.title}`);
       return fullText.includes(query);
     });
 
-    setFilteredSongs(results.slice(0, 6));
-  }, [searchQuery]);
+    setFilteredSongs(results.slice(0, 5));
+    setSelectedIndex(0);
+  }, [searchQuery, selectedGenre]);
 
   const playAudioSnippet = () => {
     if (!targetSong || !audioRef.current || isLoading) return;
@@ -148,6 +168,7 @@ export default function MelodlePage() {
     setGuesses(newGuesses);
     setSearchQuery('');
     setFilteredSongs([]);
+    setSelectedIndex(-1);
 
     const isCorrect = guessedSong.id === currentSongLocal.id;
 
@@ -165,7 +186,6 @@ export default function MelodlePage() {
     advanceStage(newGuesses);
   };
 
-  // Pes Etme Fonksiyonu
   const handleGiveUp = () => {
     if (gameStatus !== 'PLAYING') return;
 
@@ -176,7 +196,6 @@ export default function MelodlePage() {
     }
     setIsPlaying(false);
 
-    // Kalan hakları doldur ve oyunu kaybettir
     const remainingSlots = 6 - guesses.length;
     const filledGuesses = [...guesses, ...Array(remainingSlots).fill('Pes Edildi')];
     setGuesses(filledGuesses);
@@ -191,11 +210,57 @@ export default function MelodlePage() {
     }
   };
 
+  // Klavye yön tuşları ve Enter yönetimi
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (filteredSongs.length === 0) return;
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setSelectedIndex((prev) => (prev < filteredSongs.length - 1 ? prev + 1 : 0));
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setSelectedIndex((prev) => (prev > 0 ? prev - 1 : filteredSongs.length - 1));
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (selectedIndex >= 0 && selectedIndex < filteredSongs.length) {
+        handleGuess(filteredSongs[selectedIndex]);
+      }
+    }
+  };
+
   return (
-    <main className="min-h-screen bg-slate-950 text-slate-100 flex flex-col items-center p-6 select-none font-sans">
-      <header className="border-b border-slate-800 w-full max-w-md pb-4 mb-6 text-center">
-        <h1 className="text-3xl font-extrabold tracking-wider text-emerald-400">MELODLE</h1>
-        <p className="text-xs text-slate-400 mt-1">Türkçe Şarkı Tahmin Oyunu</p>
+    <main className="h-screen max-h-screen bg-slate-950 text-slate-100 flex flex-col items-center justify-between p-4 sm:p-6 select-none font-sans overflow-hidden">
+      {/* Üst Başlık & Tür Seçimi */}
+      <header className="w-full max-w-md flex flex-col items-center gap-2">
+        <h1 className="text-2xl font-black tracking-wider text-emerald-400">MELODLE</h1>
+        
+        {/* Kategori Seçici Butonlar */}
+        <div className="flex bg-slate-900 border border-slate-800 rounded-lg p-1 gap-1 text-xs font-semibold">
+          <button
+            onClick={() => setSelectedGenre('all')}
+            className={`px-3 py-1 rounded-md transition-colors ${
+              selectedGenre === 'all' ? 'bg-emerald-500 text-slate-950' : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            Karışık
+          </button>
+          <button
+            onClick={() => setSelectedGenre('rock')}
+            className={`px-3 py-1 rounded-md transition-colors ${
+              selectedGenre === 'rock' ? 'bg-emerald-500 text-slate-950' : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            Türkçe Rock
+          </button>
+          <button
+            onClick={() => setSelectedGenre('rap')}
+            className={`px-3 py-1 rounded-md transition-colors ${
+              selectedGenre === 'rap' ? 'bg-emerald-500 text-slate-950' : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            Türkçe Rap
+          </button>
+        </div>
       </header>
 
       {targetSong && (
@@ -207,7 +272,8 @@ export default function MelodlePage() {
         />
       )}
 
-      <div className="w-full max-w-md flex flex-col gap-5">
+      {/* Ana Oyun Alanı */}
+      <div className="w-full max-w-md flex flex-col gap-3 my-auto">
         {/* İlerleme Barları */}
         <div className="grid grid-cols-6 gap-1.5">
           {STAGES.map((_, idx) => {
@@ -216,7 +282,7 @@ export default function MelodlePage() {
             return (
               <div
                 key={idx}
-                className={`h-2 rounded-full transition-all duration-300 ${
+                className={`h-1.5 rounded-full transition-all duration-300 ${
                   isFilled
                     ? guesses[idx] === `${currentSongLocal?.artist} - ${currentSongLocal?.title}`
                       ? 'bg-emerald-500'
@@ -231,11 +297,11 @@ export default function MelodlePage() {
         </div>
 
         {/* Tahmin Kutuları */}
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-1.5">
           {Array.from({ length: 6 }).map((_, idx) => (
             <div
               key={idx}
-              className={`h-10 border rounded-lg px-3 flex items-center text-xs font-medium truncate ${
+              className={`h-8 border rounded-lg px-3 flex items-center text-xs font-medium truncate ${
                 guesses[idx]
                   ? guesses[idx] === `${currentSongLocal?.artist} - ${currentSongLocal?.title}`
                     ? 'border-emerald-500 bg-emerald-950/40 text-emerald-300'
@@ -249,11 +315,11 @@ export default function MelodlePage() {
         </div>
 
         {/* Oynatıcı Kontrol Alanı */}
-        <div className="flex flex-col items-center justify-center gap-3 bg-slate-900 p-5 rounded-2xl border border-slate-800 shadow-xl">
+        <div className="flex flex-col items-center justify-center gap-2 bg-slate-900 p-3.5 rounded-xl border border-slate-800 shadow-md">
           <button
             onClick={playAudioSnippet}
             disabled={isLoading}
-            className={`w-16 h-16 rounded-full flex items-center justify-center text-slate-950 text-xl font-bold transition-all active:scale-95 shadow-lg cursor-pointer ${
+            className={`w-12 h-12 rounded-full flex items-center justify-center text-slate-950 text-lg font-bold transition-all active:scale-95 shadow-md cursor-pointer ${
               isLoading
                 ? 'bg-slate-700 animate-pulse text-transparent'
                 : isPlaying
@@ -263,7 +329,7 @@ export default function MelodlePage() {
           >
             {isLoading ? '...' : isPlaying ? '■' : '▶'}
           </button>
-          <span className="text-xs font-semibold text-slate-400">
+          <span className="text-[11px] font-semibold text-slate-400">
             {isLoading
               ? 'Şarkı Yükleniyor...'
               : gameStatus === 'PLAYING'
@@ -274,56 +340,60 @@ export default function MelodlePage() {
 
         {/* Oyun Sonu Kartı & Sıradaki Şarkı */}
         {gameStatus !== 'PLAYING' && targetSong && currentSongLocal && (
-          <div className="flex flex-col gap-3 animate-fade-in">
-            <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 flex items-center gap-4 shadow-lg">
+          <div className="flex flex-col gap-2 animate-fade-in">
+            <div className="bg-slate-900 border border-slate-800 rounded-xl p-3 flex items-center gap-3 shadow-md">
               <img
                 src={targetSong.album.cover_medium}
                 alt="Albüm Kapağı"
-                className="w-16 h-16 rounded-lg object-cover border border-slate-700"
+                className="w-12 h-12 rounded-lg object-cover border border-slate-700"
               />
               <div className="overflow-hidden">
-                <p className={`text-xs font-bold ${gameStatus === 'WON' ? 'text-emerald-400' : 'text-red-400'}`}>
-                  {gameStatus === 'WON' ? 'TEBRİKLER! BİLDİN 👏' : 'PES ETTİN / BİLEMEDİN 😔'}
+                <p className={`text-[10px] font-bold ${gameStatus === 'WON' ? 'text-emerald-400' : 'text-red-400'}`}>
+                  {gameStatus === 'WON' ? 'TEBRİKLER! BİLDİN 👏' : 'BİLEMEDİN / PES ETTİN 😔'}
                 </p>
-                <h3 className="font-bold text-white text-sm truncate">{currentSongLocal.title}</h3>
-                <p className="text-xs text-slate-400 truncate">{currentSongLocal.artist}</p>
+                <h3 className="font-bold text-white text-xs truncate">{currentSongLocal.title}</h3>
+                <p className="text-[11px] text-slate-400 truncate">{currentSongLocal.artist}</p>
               </div>
             </div>
 
             <button
-              onClick={handleNextSong}
+              onClick={() => loadNewSong(selectedGenre)}
               disabled={isLoading}
-              className="w-full py-3.5 bg-emerald-500 hover:bg-emerald-400 active:scale-[0.98] text-slate-950 font-bold rounded-xl text-sm transition-all cursor-pointer shadow-lg shadow-emerald-500/20 flex items-center justify-center gap-2"
+              className="w-full py-2.5 bg-emerald-500 hover:bg-emerald-400 active:scale-[0.98] text-slate-950 font-bold rounded-xl text-xs transition-all cursor-pointer shadow-md shadow-emerald-500/20 flex items-center justify-center gap-1"
             >
               {isLoading ? 'Yükleniyor...' : 'Sıradaki Şarkıya Geç ⏭️'}
             </button>
           </div>
         )}
 
-        {/* Arama Kutusu ve Alt Butonlar */}
+        {/* Arama Kutusu ve Butonlar */}
         {gameStatus === 'PLAYING' && (
-          <div className="relative flex flex-col gap-2.5">
+          <div className="relative flex flex-col gap-2">
             <div className="relative">
               <input
                 type="text"
-                placeholder="Şarkı veya sanatçı adı ara..."
+                placeholder="Şarkı veya sanatçı adı ara (↑↓ ve Enter)..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full bg-slate-900 border border-slate-800 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-emerald-500 transition-colors text-slate-100 placeholder:text-slate-500"
+                onKeyDown={handleKeyDown}
+                className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs focus:outline-none focus:border-emerald-500 transition-colors text-slate-100 placeholder:text-slate-500"
               />
 
               {/* Autocomplete Dropdown Listesi */}
               {filteredSongs.length > 0 && (
-                <div className="absolute bottom-full mb-2 w-full bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-2xl z-20">
-                  {filteredSongs.map((song) => (
+                <div className="absolute bottom-full mb-1.5 w-full bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-2xl z-20">
+                  {filteredSongs.map((song, idx) => (
                     <button
                       key={song.id}
                       onClick={() => handleGuess(song)}
-                      className="w-full text-left px-4 py-2.5 hover:bg-slate-800 flex items-center justify-between border-b border-slate-800/50 last:border-0 transition-colors cursor-pointer"
+                      className={`w-full text-left px-3.5 py-2 flex items-center justify-between border-b border-slate-800/50 last:border-0 transition-colors cursor-pointer ${
+                        idx === selectedIndex ? 'bg-slate-800 text-emerald-400' : 'text-slate-200 hover:bg-slate-800/60'
+                      }`}
                     >
-                      <span className="text-xs font-medium text-slate-200 truncate">
+                      <span className="text-xs font-medium truncate">
                         {song.artist} - {song.title}
                       </span>
+                      <span className="text-[10px] text-slate-500 uppercase ml-2">{song.genre}</span>
                     </button>
                   ))}
                 </div>
@@ -334,14 +404,14 @@ export default function MelodlePage() {
             <div className="grid grid-cols-2 gap-2">
               <button
                 onClick={handleSkip}
-                className="py-2.5 bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 text-xs font-semibold rounded-xl transition-colors cursor-pointer"
+                className="py-2 bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 text-xs font-semibold rounded-xl transition-colors cursor-pointer"
               >
                 Pas Geç (+{STAGES[stageIndex + 1] ? `${STAGES[stageIndex + 1] - STAGES[stageIndex]}s` : 'Son'})
               </button>
 
               <button
                 onClick={handleGiveUp}
-                className="py-2.5 bg-red-950/40 hover:bg-red-900/50 border border-red-900/50 text-red-300 text-xs font-semibold rounded-xl transition-colors cursor-pointer"
+                className="py-2 bg-red-950/40 hover:bg-red-900/50 border border-red-900/50 text-red-300 text-xs font-semibold rounded-xl transition-colors cursor-pointer"
               >
                 Pes Et 🏳️
               </button>
@@ -349,6 +419,11 @@ export default function MelodlePage() {
           </div>
         )}
       </div>
+
+      {/* Footer / Deezer Bilgilendirme Notu */}
+      <footer className="text-center text-[10px] text-slate-500">
+        Müzik önizlemeleri Deezer API üzerinden sağlanmaktadır.
+      </footer>
     </main>
   );
 }
