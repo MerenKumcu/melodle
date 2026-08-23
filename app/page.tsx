@@ -55,7 +55,7 @@ export default function MelodlePage() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Kategoriye göre filtrelenmiş şarkı havuzu
+  // Kategoriye göre şarkı havuzu
   const getPool = (genre: 'all' | 'rock' | 'rap') => {
     if (genre === 'all') return songsData;
     return songsData.filter((s) => s.genre === genre);
@@ -75,20 +75,25 @@ export default function MelodlePage() {
     return { song: randomSong, updatedPlayed: [...currentPlayed, randomSong.id] };
   };
 
-  // Şarkıyı yükleme fonksiyonu
+  // Yeni Şarkı Yükleme (Bug Fixli)
   const loadNewSong = async (genre: 'all' | 'rock' | 'rap') => {
     setIsLoading(true);
+    
+    // 1. Önceki sesi ve sayacı anında tamamen durdur ve sıfırla
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
     if (audioRef.current) {
       audioRef.current.pause();
-      audioRef.current.currentTime = 0;
+      audioRef.current.removeAttribute('src'); // Eski şarkının ses izini tamamen kaldırır
+      audioRef.current.load();
     }
     setIsPlaying(false);
+    setTargetSong(null); // Eski albüm/ses verisini anında temizle
 
     const { song, updatedPlayed } = getRandomSong(genre, playedIds);
     setPlayedIds(updatedPlayed);
     setCurrentSongLocal(song);
 
+    // 2. Oyun durumunu sıfırla
     setGuesses([]);
     setStageIndex(0);
     setGameStatus('PLAYING');
@@ -148,7 +153,7 @@ export default function MelodlePage() {
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
 
     audio.currentTime = 0;
-    audio.play();
+    audio.play().catch((e) => console.error("Çalma hatası:", e));
     setIsPlaying(true);
 
     const playDuration = (gameStatus === 'PLAYING' ? STAGES[stageIndex] : 30) * 1000;
@@ -161,7 +166,7 @@ export default function MelodlePage() {
   };
 
   const handleGuess = (guessedSong: LocalSong) => {
-    if (gameStatus !== 'PLAYING' || !currentSongLocal) return;
+    if (gameStatus !== 'PLAYING' || !currentSongLocal || isLoading) return;
 
     const guessText = `${guessedSong.artist} - ${guessedSong.title}`;
     const newGuesses = [...guesses, guessText];
@@ -180,14 +185,14 @@ export default function MelodlePage() {
   };
 
   const handleSkip = () => {
-    if (gameStatus !== 'PLAYING') return;
+    if (gameStatus !== 'PLAYING' || isLoading) return;
     const newGuesses = [...guesses, 'Pas Geçildi'];
     setGuesses(newGuesses);
     advanceStage(newGuesses);
   };
 
   const handleGiveUp = () => {
-    if (gameStatus !== 'PLAYING') return;
+    if (gameStatus !== 'PLAYING' || isLoading) return;
 
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
     if (audioRef.current) {
@@ -210,7 +215,6 @@ export default function MelodlePage() {
     }
   };
 
-  // Klavye yön tuşları ve Enter yönetimi
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (filteredSongs.length === 0) return;
 
@@ -237,7 +241,7 @@ export default function MelodlePage() {
         {/* Kategori Seçici Butonlar */}
         <div className="flex bg-slate-900 border border-slate-800 rounded-lg p-1 gap-1 text-xs font-semibold">
           <button
-            onClick={() => setSelectedGenre('all')}
+            onClick={() => !isLoading && setSelectedGenre('all')}
             className={`px-3 py-1 rounded-md transition-colors ${
               selectedGenre === 'all' ? 'bg-emerald-500 text-slate-950' : 'text-slate-400 hover:text-slate-200'
             }`}
@@ -245,7 +249,7 @@ export default function MelodlePage() {
             Karışık
           </button>
           <button
-            onClick={() => setSelectedGenre('rock')}
+            onClick={() => !isLoading && setSelectedGenre('rock')}
             className={`px-3 py-1 rounded-md transition-colors ${
               selectedGenre === 'rock' ? 'bg-emerald-500 text-slate-950' : 'text-slate-400 hover:text-slate-200'
             }`}
@@ -253,7 +257,7 @@ export default function MelodlePage() {
             Türkçe Rock
           </button>
           <button
-            onClick={() => setSelectedGenre('rap')}
+            onClick={() => !isLoading && setSelectedGenre('rap')}
             className={`px-3 py-1 rounded-md transition-colors ${
               selectedGenre === 'rap' ? 'bg-emerald-500 text-slate-950' : 'text-slate-400 hover:text-slate-200'
             }`}
@@ -263,14 +267,13 @@ export default function MelodlePage() {
         </div>
       </header>
 
-      {targetSong && (
-        <audio
-          ref={audioRef}
-          src={targetSong.preview}
-          preload="auto"
-          onEnded={() => setIsPlaying(false)}
-        />
-      )}
+      {/* Audio Elemanı */}
+      <audio
+        ref={audioRef}
+        src={targetSong?.preview || ''}
+        preload="auto"
+        onEnded={() => setIsPlaying(false)}
+      />
 
       {/* Ana Oyun Alanı */}
       <div className="w-full max-w-md flex flex-col gap-3 my-auto">
@@ -318,20 +321,20 @@ export default function MelodlePage() {
         <div className="flex flex-col items-center justify-center gap-2 bg-slate-900 p-3.5 rounded-xl border border-slate-800 shadow-md">
           <button
             onClick={playAudioSnippet}
-            disabled={isLoading}
+            disabled={isLoading || !targetSong}
             className={`w-12 h-12 rounded-full flex items-center justify-center text-slate-950 text-lg font-bold transition-all active:scale-95 shadow-md cursor-pointer ${
-              isLoading
+              isLoading || !targetSong
                 ? 'bg-slate-700 animate-pulse text-transparent'
                 : isPlaying
                 ? 'bg-amber-400 shadow-amber-500/20'
                 : 'bg-emerald-400 shadow-emerald-500/20'
             }`}
           >
-            {isLoading ? '...' : isPlaying ? '■' : '▶'}
+            {isLoading || !targetSong ? '...' : isPlaying ? '■' : '▶'}
           </button>
           <span className="text-[11px] font-semibold text-slate-400">
-            {isLoading
-              ? 'Şarkı Yükleniyor...'
+            {isLoading || !targetSong
+              ? 'Yeni Şarkı Yükleniyor...'
               : gameStatus === 'PLAYING'
               ? `Dinleme Süresi: ${STAGES[stageIndex]} sn`
               : 'Şarkının Önizlemesini Dinle (30 sn)'}
@@ -339,14 +342,16 @@ export default function MelodlePage() {
         </div>
 
         {/* Oyun Sonu Kartı & Sıradaki Şarkı */}
-        {gameStatus !== 'PLAYING' && targetSong && currentSongLocal && (
+        {gameStatus !== 'PLAYING' && currentSongLocal && (
           <div className="flex flex-col gap-2 animate-fade-in">
             <div className="bg-slate-900 border border-slate-800 rounded-xl p-3 flex items-center gap-3 shadow-md">
-              <img
-                src={targetSong.album.cover_medium}
-                alt="Albüm Kapağı"
-                className="w-12 h-12 rounded-lg object-cover border border-slate-700"
-              />
+              {targetSong?.album?.cover_medium && (
+                <img
+                  src={targetSong.album.cover_medium}
+                  alt="Albüm Kapağı"
+                  className="w-12 h-12 rounded-lg object-cover border border-slate-700"
+                />
+              )}
               <div className="overflow-hidden">
                 <p className={`text-[10px] font-bold ${gameStatus === 'WON' ? 'text-emerald-400' : 'text-red-400'}`}>
                   {gameStatus === 'WON' ? 'TEBRİKLER! BİLDİN 👏' : 'BİLEMEDİN / PES ETTİN 😔'}
@@ -372,11 +377,12 @@ export default function MelodlePage() {
             <div className="relative">
               <input
                 type="text"
+                disabled={isLoading}
                 placeholder="Şarkı veya sanatçı adı ara (↑↓ ve Enter)..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 onKeyDown={handleKeyDown}
-                className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs focus:outline-none focus:border-emerald-500 transition-colors text-slate-100 placeholder:text-slate-500"
+                className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs focus:outline-none focus:border-emerald-500 transition-colors text-slate-100 placeholder:text-slate-500 disabled:opacity-50"
               />
 
               {/* Autocomplete Dropdown Listesi */}
@@ -404,14 +410,16 @@ export default function MelodlePage() {
             <div className="grid grid-cols-2 gap-2">
               <button
                 onClick={handleSkip}
-                className="py-2 bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 text-xs font-semibold rounded-xl transition-colors cursor-pointer"
+                disabled={isLoading}
+                className="py-2 bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 text-xs font-semibold rounded-xl transition-colors cursor-pointer disabled:opacity-50"
               >
                 Pas Geç (+{STAGES[stageIndex + 1] ? `${STAGES[stageIndex + 1] - STAGES[stageIndex]}s` : 'Son'})
               </button>
 
               <button
                 onClick={handleGiveUp}
-                className="py-2 bg-red-950/40 hover:bg-red-900/50 border border-red-900/50 text-red-300 text-xs font-semibold rounded-xl transition-colors cursor-pointer"
+                disabled={isLoading}
+                className="py-2 bg-red-950/40 hover:bg-red-900/50 border border-red-900/50 text-red-300 text-xs font-semibold rounded-xl transition-colors cursor-pointer disabled:opacity-50"
               >
                 Pes Et 🏳️
               </button>
@@ -420,7 +428,7 @@ export default function MelodlePage() {
         )}
       </div>
 
-      {/* Footer / Deezer Bilgilendirme Notu */}
+      {/* Footer */}
       <footer className="text-center text-[10px] text-slate-500">
         Müzik önizlemeleri Deezer API üzerinden sağlanmaktadır.
       </footer>
