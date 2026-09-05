@@ -19,6 +19,8 @@ interface LocalSong {
   title: string;
 }
 
+type GenreType = 'all' | 'rock' | 'rap' | 'pop';
+
 const STAGES = [1, 2, 4, 7, 11, 16];
 
 const normalizeText = (text: string) => {
@@ -36,7 +38,7 @@ const normalizeText = (text: string) => {
 export default function MelodlePage() {
   const songsData = rawSongsData as LocalSong[];
 
-  const [selectedGenre, setSelectedGenre] = useState<'all' | 'rock' | 'rap'>('all');
+  const [selectedGenre, setSelectedGenre] = useState<GenreType>('all');
   const [playedIds, setPlayedIds] = useState<number[]>([]);
   const [targetSong, setTargetSong] = useState<Song | null>(null);
   const [currentSongLocal, setCurrentSongLocal] = useState<LocalSong | null>(null);
@@ -55,14 +57,14 @@ export default function MelodlePage() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Kategoriye göre şarkı havuzu
-  const getPool = (genre: 'all' | 'rock' | 'rap') => {
+  // Kategoriye göre filtrelenmiş şarkı havuzu
+  const getPool = (genre: GenreType) => {
     if (genre === 'all') return songsData;
     return songsData.filter((s) => s.genre === genre);
   };
 
   // Tekrarsız Rastgele Şarkı Seçici
-  const getRandomSong = (genre: 'all' | 'rock' | 'rap', currentPlayed: number[]) => {
+  const getRandomSong = (genre: GenreType, currentPlayed: number[]) => {
     const pool = getPool(genre);
     let available = pool.filter((s) => !currentPlayed.includes(s.id));
 
@@ -75,25 +77,25 @@ export default function MelodlePage() {
     return { song: randomSong, updatedPlayed: [...currentPlayed, randomSong.id] };
   };
 
-  // Yeni Şarkı Yükleme (Bug Fixli)
-  const loadNewSong = async (genre: 'all' | 'rock' | 'rap') => {
+  // Şarkıyı yükleme fonksiyonu
+  const loadNewSong = async (genre: GenreType) => {
     setIsLoading(true);
     
-    // 1. Önceki sesi ve sayacı anında tamamen durdur ve sıfırla
+    // Eski sesi ve sayacı durdur/sıfırla
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
     if (audioRef.current) {
       audioRef.current.pause();
-      audioRef.current.removeAttribute('src'); // Eski şarkının ses izini tamamen kaldırır
+      audioRef.current.removeAttribute('src');
       audioRef.current.load();
     }
     setIsPlaying(false);
-    setTargetSong(null); // Eski albüm/ses verisini anında temizle
+    setTargetSong(null);
 
     const { song, updatedPlayed } = getRandomSong(genre, playedIds);
     setPlayedIds(updatedPlayed);
     setCurrentSongLocal(song);
 
-    // 2. Oyun durumunu sıfırla
+    // Durumları sıfırla
     setGuesses([]);
     setStageIndex(0);
     setGameStatus('PLAYING');
@@ -153,7 +155,7 @@ export default function MelodlePage() {
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
 
     audio.currentTime = 0;
-    audio.play().catch((e) => console.error("Çalma hatası:", e));
+    audio.play().catch((e) => console.error('Çalma hatası:', e));
     setIsPlaying(true);
 
     const playDuration = (gameStatus === 'PLAYING' ? STAGES[stageIndex] : 30) * 1000;
@@ -215,6 +217,7 @@ export default function MelodlePage() {
     }
   };
 
+  // Klavye yön tuşları ve Enter
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (filteredSongs.length === 0) return;
 
@@ -239,7 +242,7 @@ export default function MelodlePage() {
         <h1 className="text-2xl font-black tracking-wider text-emerald-400">MELODLE</h1>
         
         {/* Kategori Seçici Butonlar */}
-        <div className="flex bg-slate-900 border border-slate-800 rounded-lg p-1 gap-1 text-xs font-semibold">
+        <div className="flex bg-slate-900 border border-slate-800 rounded-lg p-1 gap-1 text-xs font-semibold flex-wrap justify-center">
           <button
             onClick={() => !isLoading && setSelectedGenre('all')}
             className={`px-3 py-1 rounded-md transition-colors ${
@@ -263,6 +266,14 @@ export default function MelodlePage() {
             }`}
           >
             Türkçe Rap
+          </button>
+          <button
+            onClick={() => !isLoading && setSelectedGenre('pop')}
+            className={`px-3 py-1 rounded-md transition-colors ${
+              selectedGenre === 'pop' ? 'bg-emerald-500 text-slate-950' : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            Türkçe Pop
           </button>
         </div>
       </header>
@@ -428,7 +439,7 @@ export default function MelodlePage() {
         )}
       </div>
 
-      {/* Footer */}
+      {/* Deezer Footer */}
       <footer className="text-center text-[10px] text-slate-500">
         Müzik önizlemeleri Deezer API üzerinden sağlanmaktadır.
       </footer>
