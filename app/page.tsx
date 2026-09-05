@@ -56,6 +56,7 @@ export default function MelodlePage() {
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const dropdownRef = useRef<HTMLDivElement | null>(null);
 
   // Kategoriye göre filtrelenmiş şarkı havuzu
   const getPool = (genre: GenreType) => {
@@ -81,7 +82,6 @@ export default function MelodlePage() {
   const loadNewSong = async (genre: GenreType) => {
     setIsLoading(true);
     
-    // Eski sesi ve sayacı durdur/sıfırla
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
     if (audioRef.current) {
       audioRef.current.pause();
@@ -95,7 +95,6 @@ export default function MelodlePage() {
     setPlayedIds(updatedPlayed);
     setCurrentSongLocal(song);
 
-    // Durumları sıfırla
     setGuesses([]);
     setStageIndex(0);
     setGameStatus('PLAYING');
@@ -120,7 +119,7 @@ export default function MelodlePage() {
     loadNewSong(selectedGenre);
   }, [selectedGenre]);
 
-  // Arama filtreleme
+  // Arama filtreleme (limit 30'a çıkarıldı)
   useEffect(() => {
     const query = normalizeText(searchQuery);
     if (query.length < 2) {
@@ -135,9 +134,19 @@ export default function MelodlePage() {
       return fullText.includes(query);
     });
 
-    setFilteredSongs(results.slice(0, 5));
+    setFilteredSongs(results.slice(0, 30));
     setSelectedIndex(0);
   }, [searchQuery, selectedGenre]);
+
+  // Klavye ile gezinirken seçili elemanı scroll alanına kaydırma
+  useEffect(() => {
+    if (dropdownRef.current && selectedIndex >= 0) {
+      const activeEl = dropdownRef.current.children[selectedIndex] as HTMLElement;
+      if (activeEl) {
+        activeEl.scrollIntoView({ block: 'nearest' });
+      }
+    }
+  }, [selectedIndex]);
 
   const playAudioSnippet = () => {
     if (!targetSong || !audioRef.current || isLoading) return;
@@ -217,7 +226,7 @@ export default function MelodlePage() {
     }
   };
 
-  // Klavye yön tuşları ve Enter
+  // Klavye yön tuşları ve Enter yönetimi
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (filteredSongs.length === 0) return;
 
@@ -241,7 +250,6 @@ export default function MelodlePage() {
       <header className="w-full max-w-md flex flex-col items-center gap-2">
         <h1 className="text-2xl font-black tracking-wider text-emerald-400">MELODLE</h1>
         
-        {/* Kategori Seçici Butonlar */}
         <div className="flex bg-slate-900 border border-slate-800 rounded-lg p-1 gap-1 text-xs font-semibold flex-wrap justify-center">
           <button
             onClick={() => !isLoading && setSelectedGenre('all')}
@@ -396,9 +404,12 @@ export default function MelodlePage() {
                 className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs focus:outline-none focus:border-emerald-500 transition-colors text-slate-100 placeholder:text-slate-500 disabled:opacity-50"
               />
 
-              {/* Autocomplete Dropdown Listesi */}
+              {/* Kaydırılabilir Autocomplete Dropdown Listesi */}
               {filteredSongs.length > 0 && (
-                <div className="absolute bottom-full mb-1.5 w-full bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-2xl z-20">
+                <div
+                  ref={dropdownRef}
+                  className="absolute bottom-full mb-1.5 w-full bg-slate-900 border border-slate-800 rounded-xl overflow-y-auto max-h-48 shadow-2xl z-20"
+                >
                   {filteredSongs.map((song, idx) => (
                     <button
                       key={song.id}
@@ -410,7 +421,7 @@ export default function MelodlePage() {
                       <span className="text-xs font-medium truncate">
                         {song.artist} - {song.title}
                       </span>
-                      <span className="text-[10px] text-slate-500 uppercase ml-2">{song.genre}</span>
+                      <span className="text-[10px] text-slate-500 uppercase ml-2 shrink-0">{song.genre}</span>
                     </button>
                   ))}
                 </div>
